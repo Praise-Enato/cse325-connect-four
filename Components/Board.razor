@@ -1,0 +1,155 @@
+@using System.Drawing
+@inject GameState State
+@inject SeriesScore Series
+
+<HeadContent>
+    <style>
+        :root {
+            --board-bg: @ColorTranslator.ToHtml(BoardColor);
+            --player1: @ColorTranslator.ToHtml(Player1Color);
+            --player2: @ColorTranslator.ToHtml(Player2Color);
+        }
+    </style>
+</HeadContent>
+
+<nav>
+    @for (byte i = 0; i < 7; i++)
+    {
+        var col = i;
+        <span title="Click to play a piece" @onclick="() => PlayPiece(col)">🔽</span>
+    }
+</nav>
+
+<article>
+    @winnerMessage <button style="@ResetStyle" @onclick="ResetGame">Reset the game</button>
+    <br />
+    <span class="alert-danger">@errorMessage</span>
+    <span class="alert-info">@CurrentTurn</span>
+</article>
+
+<div>
+    <div class="board">
+        @for (var i = 0; i < 42; i++)
+        {
+            <span class="container">
+                <span></span>
+            </span>
+        }
+    </div>
+    @for (var i = 0; i < 42; i++)
+    {
+        <span class="@pieces[i]"></span>
+    }
+</div>
+
+@* ---------------------------------------------------------------------------
+   Custom feature: series scoreboard.
+   GameState is reset every time a new game starts, so the tally lives in a
+   separate singleton (SeriesScore) that outlives the board.
+   --------------------------------------------------------------------------- *@
+<section class="scoreboard">
+    <h2 class="scoreboard-title">Series Score</h2>
+
+    <div class="score-rows">
+        <div class="score-row @(Series.LastResult == GameState.WinState.Player1_Wins ? "scored" : "")">
+            <span class="chip chip-player1"></span>
+            <span class="score-name">Player 1</span>
+            <span class="score-value">@Series.Player1Wins</span>
+        </div>
+        <div class="score-row @(Series.LastResult == GameState.WinState.Player2_Wins ? "scored" : "")">
+            <span class="chip chip-player2"></span>
+            <span class="score-name">Player 2</span>
+            <span class="score-value">@Series.Player2Wins</span>
+        </div>
+        <div class="score-row @(Series.LastResult == GameState.WinState.Tie ? "scored" : "")">
+            <span class="chip chip-tie"></span>
+            <span class="score-name">Ties</span>
+            <span class="score-value">@Series.Ties</span>
+        </div>
+    </div>
+
+    <p class="standings">@Series.StandingsMessage</p>
+
+    <div class="scoreboard-footer">
+        <span class="games-played">Games played: @Series.GamesPlayed</span>
+        <button class="clear-series" @onclick="ClearSeries" disabled="@(Series.GamesPlayed == 0)">
+            Clear series
+        </button>
+    </div>
+</section>
+
+@code {
+    private string[] pieces = new string[42];
+    private string winnerMessage = string.Empty;
+    private string errorMessage = string.Empty;
+
+    // Guards against counting the same finished game more than once. Clicking a
+    // drop button after a win re-runs the win check, which would otherwise
+    // increment the score on every extra click.
+    private bool resultRecorded;
+
+    private string CurrentTurn => (winnerMessage == string.Empty) ? $"Player {State.PlayerTurn}'s Turn" : "";
+    private string ResetStyle => (winnerMessage == string.Empty) ? "display: none;" : "";
+
+    [Parameter]
+    public Color BoardColor { get; set; } = ColorTranslator.FromHtml("yellow");
+
+    [Parameter]
+    public Color Player1Color { get; set; } = ColorTranslator.FromHtml("red");
+
+    [Parameter]
+    public Color Player2Color { get; set; } = ColorTranslator.FromHtml("blue");
+
+    protected override void OnInitialized()
+    {
+        State.ResetBoard();
+    }
+
+    private void PlayPiece(byte col)
+    {
+        errorMessage = string.Empty;
+        try
+        {
+            var player = State.PlayerTurn;
+            var turn = State.CurrentTurn;
+            var landingRow = State.PlayPiece(col);
+            pieces[turn] = $"player{player} col{col} drop{landingRow}";
+        }
+        catch (ArgumentException ex)
+        {
+            errorMessage = ex.Message;
+        }
+
+        var winState = State.CheckForWin();
+
+        winnerMessage = winState switch
+        {
+            GameState.WinState.Player1_Wins => "Player 1 Wins!",
+            GameState.WinState.Player2_Wins => "Player 2 Wins!",
+            GameState.WinState.Tie => "It's a tie!",
+            _ => ""
+        };
+
+        // Custom feature: bank the result the first time this game ends.
+        if (winState != GameState.WinState.No_Winner && !resultRecorded)
+        {
+            Series.Record(winState);
+            resultRecorded = true;
+        }
+    }
+
+    void ResetGame()
+    {
+        State.ResetBoard();
+        winnerMessage = string.Empty;
+        errorMessage = string.Empty;
+        pieces = new string[42];
+        resultRecorded = false;
+    }
+
+    // Custom feature: wipe the tally without disturbing the game in progress.
+    void ClearSeries()
+    {
+        Series.Clear();
+    }
+}
